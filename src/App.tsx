@@ -28,6 +28,7 @@ import { LearningWorkspace } from './panels/LearningWorkspace';
 import { ChatPanel, type ChatActivity, type ChatApi, type ToolRun } from './chat/ChatPanel';
 import { StoryboardViewer } from './chat/StoryboardViewer';
 import { BRAND_PROMPT_EVENT, brandPromptMessage, type BrandPromptDetail } from './lib/brandKit/promptEvent';
+import { MUSIC_ASK_EVENT, MUSIC_CREATE_EVENT, setCreateListening, type MusicAskDetail, type MusicCreateDetail } from './music/create/events';
 import { ADD_BRAND_MOTION_EVENT, type AddBrandMotionDetail } from './lib/brandKit/motionEvent';
 import { steer } from './chat/steer';
 import { HeaderBar, MenuBar, type MenuGroup, type Mode } from './components/AppChrome';
@@ -985,6 +986,25 @@ export default function App() {
     };
     window.addEventListener(BRAND_PROMPT_EVENT, onBrandPrompt);
     return () => window.removeEventListener(BRAND_PROMPT_EVENT, onBrandPrompt);
+  }, []);
+  // The Music Studio's Create panel (src/music/create/events.ts): songs go through music_create_song,
+  // the tool the AI uses, and "Ask AI" (or lyrics only Bhippi AI can write) becomes a Quick turn.
+  useEffect(() => {
+    setCreateListening(true);
+    const onCreate = (event: Event) => {
+      const detail = (event as CustomEvent<MusicCreateDetail>).detail;
+      if (!detail?.done) return;
+      void runTool(hostRef.current, 'music_create_song', detail.args).then(detail.done, (error: unknown) => detail.done({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    };
+    const onAsk = (event: Event) => {
+      const text = (event as CustomEvent<MusicAskDetail>).detail?.text;
+      if (!text?.trim()) return;
+      if (chatApi.current?.busy()) { toastRef.current({ tone: 'info', title: 'Bhippi AI is busy', body: 'Ask again when the current turn is done.' }); return; }
+      chatApi.current?.send(text, { mode: 'quick' });
+    };
+    window.addEventListener(MUSIC_CREATE_EVENT, onCreate);
+    window.addEventListener(MUSIC_ASK_EVENT, onAsk);
+    return () => { setCreateListening(false); window.removeEventListener(MUSIC_CREATE_EVENT, onCreate); window.removeEventListener(MUSIC_ASK_EVENT, onAsk); };
   }, []);
   // Brand Studio's "Add to timeline" (src/lib/brandKit/motionEvent.ts): the motion pack piece (or the
   // brand film) goes in at the playhead through the same tool the AI uses, brand_motion_pack.

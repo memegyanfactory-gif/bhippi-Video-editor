@@ -131,7 +131,9 @@ describe('benchmark: overhead per step, by kind of video', () => {
       // Raised to 45,400 on 2026-10-18 for the Music Studio (src/music): the slim entries of its 15
       // music_* tools (~+500 a step) and its one-line prompt section, the DAW every provider composes
       // in note by note. They go out whole only on a music ask or with the studio open.
-      expect(row.step, row.id).toBeLessThan(45_400);
+      // Raised to 45,500 on 2026-10-31 for `music_create_song` (its slim entry and the prompt's music
+      // line, ~+57 a step): whole produced songs from music models, fitted to the voice-over.
+      expect(row.step, row.id).toBeLessThan(45_500);
     }
   });
 

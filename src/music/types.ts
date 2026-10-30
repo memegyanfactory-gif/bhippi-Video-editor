@@ -181,6 +181,33 @@ export type MusicProject = {
   seed: number;
   /** Where the bounced song sits on the video timeline, one entry per composition (src/music/timeline.ts). */
   placements?: SongPlacement[];
+  /** Songs generated for this project by a music model (the Create panel, music_create_song), newest first. */
+  takes?: SongTake[];
+};
+
+/** One generated, mastered song (src/music/create): an audio asset in the bin plus what made it. */
+export type SongTake = {
+  id: string;
+  assetId: string;
+  title: string;
+  /** Engine id: ace-step (local), studio, or a cloud engine (elevenlabs, fal-minimax…). */
+  engine: string;
+  engineLabel: string;
+  createdAt: number;
+  prompt: string;
+  /** One line: genre · mood · tempo · key · length · vocals. */
+  summary: string;
+  purpose: 'song' | 'score';
+  instrumental: boolean;
+  lyrics?: string;
+  bpm: number;
+  keyscale: string;
+  seconds: number;
+  lufs: number;
+  beats: number[];
+  downbeats: number[];
+  /** What the voice-over asked for, when the take was fitted to one. */
+  voiceNote?: string | null;
 };
 
 /** The song's music layer on one composition: sending the song again refreshes this clip in place. */

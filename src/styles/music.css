@@ -411,3 +411,44 @@
 
 /* The zoom slider beside the zoom buttons in the Playlist and Piano Roll title strips. */
 .ms-zoom-slider { width: 84px; height: 14px; margin: 0 2px; accent-color: var(--ms-accent); cursor: ew-resize; }
+
+/* ── Create panel (CreatePanel.tsx): AI songs and scores ─────────────────────────────────── */
+.ms-create-btn { color: var(--ms-accent); border-color: color-mix(in srgb, var(--ms-accent) 45%, #000); }
+.ms-create { flex: 0 0 340px; width: 340px; max-width: 42%; }
+.ms-create-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--ms-s2); padding: var(--ms-s3); user-select: text; }
+.ms-create-mode, .ms-create-vocals { align-self: stretch; }
+.ms-create-mode button, .ms-create-vocals button { flex: 1 1 0; }
+.ms-create-label { font-size: 11px; font-weight: 600; color: var(--ms-dim); }
+.ms-create-label em { font-style: normal; font-weight: 400; color: var(--ms-faint); margin-left: 4px; }
+.ms-create-text { height: auto; width: 100%; padding: 6px 8px; resize: vertical; line-height: 1.4; font: inherit; }
+.ms-create-text.mono { font-family: var(--ms-mono); font-size: 11px; }
+.ms-create-genres { display: flex; flex-wrap: wrap; gap: 4px; }
+.ms-create-genre { height: 22px; padding: 0 9px; border-radius: 11px; border: 1px solid var(--ms-line-dark); background: var(--ms-bg-0); color: var(--ms-dim); font-size: 11px; }
+.ms-create-genre:hover { color: var(--ms-text); border-color: var(--ms-line-hi); }
+.ms-create-genre.on { background: color-mix(in srgb, var(--ms-accent) 18%, var(--ms-bg-1)); border-color: color-mix(in srgb, var(--ms-accent) 60%, #000); color: var(--ms-accent); }
+.ms-create-voice { display: flex; gap: 6px; margin: 0; padding: 7px 8px; border-radius: 4px; background: color-mix(in srgb, var(--ms-accent-2) 10%, var(--ms-bg-1)); border: 1px solid color-mix(in srgb, var(--ms-accent-2) 35%, var(--ms-line-dark)); font-size: 11px; color: var(--ms-text); }
+.ms-create-voice.none { background: var(--ms-bg-0); border-color: var(--ms-line-dark); color: var(--ms-dim); }
+.ms-create-voice svg { flex: none; margin-top: 2px; }
+.ms-create-row { display: flex; align-items: center; gap: var(--ms-s2); flex-wrap: wrap; }
+.ms-create-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.ms-create-check input { accent-color: var(--ms-accent); }
+.ms-create-len { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 140px; }
+.ms-create-len input { flex: 1 1 auto; accent-color: var(--ms-accent); }
+.ms-create-field { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ms-dim); }
+.ms-create-field select { max-width: 190px; }
+.ms-create-hint { margin: 0; font-size: 11px; color: var(--ms-warn); }
+.ms-create-actions { display: flex; gap: var(--ms-s2); }
+.ms-create-go { flex: 1 1 auto; justify-content: center; height: 30px; font-size: 12.5px; }
+.ms-create-actions .ms-btn:not(.ms-create-go) { height: 30px; }
+.ms-create-progress { margin: 0; font-size: 11px; color: var(--ms-lcd); font-family: var(--ms-mono); }
+.ms-create-error { margin: 0; padding: 6px 8px; border-radius: 4px; background: color-mix(in srgb, var(--ms-clip) 14%, var(--ms-bg-1)); border: 1px solid color-mix(in srgb, var(--ms-clip) 45%, var(--ms-line-dark)); font-size: 11px; }
+.ms-create-h { margin: var(--ms-s2) 0 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ms-dim); }
+.ms-create-h em { font-style: normal; color: var(--ms-faint); margin-left: 4px; }
+.ms-create-takes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ms-take { display: flex; align-items: flex-start; gap: 8px; padding: 6px; border-radius: 4px; background: var(--ms-bg-2); border: 1px solid var(--ms-line-dark); }
+.ms-take.playing { border-color: color-mix(in srgb, var(--ms-accent) 60%, #000); }
+.ms-take-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: var(--ms-dim); }
+.ms-take-info strong { color: var(--ms-text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-take-lyr { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--ms-accent-2); font-size: 11px; }
+.ms-take-lyrics { margin: 4px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; font: 11px/1.4 var(--ms-mono); color: var(--ms-text); }
+.ms-take-acts { display: flex; flex-direction: column; gap: 2px; }

@@ -259,7 +259,7 @@ const GATHER_TOOLS = new Set([
 ]);
 
 /** Bhippi's built-in score and background plates: gathered media while gathering, edits after. */
-const BUILTIN_MEDIA = new Set(['compose_music', 'make_background', 'music_render']);
+const BUILTIN_MEDIA = new Set(['compose_music', 'make_background', 'music_render', 'music_create_song']);
 
 /** Tools that make a composition: the way forward in a project that has none. */
 const MAKES_COMP = new Set(['choose_comp_size', 'create_comp']);
@@ -935,7 +935,7 @@ export class EditWorkflow {
     // Designed sound counts: shaped music/SFX automation or built-in accents.
     if (name === 'score_audio_clip' || name === 'add_sound_effect' || name === 'generate_selection_sound' || name === 'sound_the_motion') this.soundPass = true;
     // A placed score is a designed music bed; the guided build lays graphics, cues, music and its own storyboard.
-    if ((name === 'compose_music' || name === 'music_render') && result.placed === true) this.soundPass = true;
+    if ((name === 'compose_music' || name === 'music_render' || name === 'music_create_song') && result.placed === true) this.soundPass = true;
     if (name === 'build_edit_from_brief') { this.proVisual = true; this.soundPass = true; this.storyboardRefs = true; }
     if (recipe === 'music-bed') this.soundPass = true;
     const audioTracks = comp.tracks.filter(t => t.kind === 'audio');

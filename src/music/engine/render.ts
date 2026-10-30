@@ -10,6 +10,9 @@ import { expandAudioClips, expandEvents, playLengthSteps, tempoMapFor } from './
 import { MixerGraph } from './graph';
 import { Performer } from './performer';
 
+/** Seconds of notes handed to the offline context at a time (each suspend schedules the next two windows). */
+const RENDER_WINDOW = 4;
+
 /** Every bin asset the song needs decoded (sampler channels and audio clips). */
 async function loadSamples(song: MusicProject, loader?: SampleLoader): Promise<Map<string, AudioBuffer>> {
   const samples = new Map<string, AudioBuffer>();
@@ -48,7 +51,22 @@ export async function renderSong(song: MusicProject, options: RenderOptions = {}
     const graph = new MixerGraph(ctx, song, { tap });
     const performer = new Performer(ctx, graph, samples, song);
     graph.sync(0);
-    for (const ev of events) if (!only || only.has(ev.channelId)) performer.note(ev, ev.time - start);
+    // Notes are handed to the context a window ahead, as live playback does: every voice made up front
+    // stays in the graph for the whole render, so cost grew with the square of the song's length
+    // (a 2-minute song took many minutes). Suspending at each window keeps the graph small; the
+    // output is the same, sample for sample.
+    const notes = events.filter((ev) => !only || only.has(ev.channelId)).sort((a, b) => a.time - b.time);
+    let next = 0;
+    const scheduleUntil = (until: number) => {
+      while (next < notes.length && notes[next].time - start < until) { performer.note(notes[next], notes[next].time - start); next++; }
+    };
+    const total = ctx.length / sampleRate;
+    scheduleUntil(RENDER_WINDOW * 2);
+    if (typeof ctx.suspend !== 'function') scheduleUntil(Infinity);
+    for (let at = RENDER_WINDOW; at < total - RENDER_WINDOW / 2 && next < notes.length; at += RENDER_WINDOW) {
+      const until = at + RENDER_WINDOW * 2;
+      void ctx.suspend(at).then(() => { scheduleUntil(until); return ctx.resume(); });
+    }
     if (!only) for (const clip of audio) performer.audioClip(clip, clip.time - start);
     scheduleAutomation(plan, graph, from, to, (step) => map.timeAt(step) - start, new Map());
     const buffer = await ctx.startRendering();

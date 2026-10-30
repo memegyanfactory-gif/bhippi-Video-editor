@@ -11881,6 +11881,150 @@
       }
     },
     {
+      "name": "music_create_song",
+      "description": "Makes a whole, production-ready song with a music model, the way Suno does: full arrangement, real instruments, vocals when asked, mastered to -14 LUFS / -1 dBTP with its beat grid. Use it for any request for a song, a beat, background music, a score or a soundtrack (music_new_song and music_generate write editable notes for the Studio synths instead). It reads the composition's voice-over first (where the voice talks and pauses, how fast, what it is about, from the transcript) and, for purpose score, writes an instrumental bed that leaves room for the voice, timed to the video, then lays it on the timeline ducked under every phrase. Engines (engine: auto picks the best ready one; listEngines:true lists what is ready): ace-step (ACE-Step 1.5 on this PC, free), elevenlabs (ElevenLabs Music, licensed, exact length), fal-minimax (MiniMax Music 2.6), fal-lyria (Lyria 3 Pro), fal-ace-step, fal-stable-audio (instrumental), studio (the Studio synths, offline, instrumental). Sung songs: write lyrics with [Verse] / [Chorus] / [Bridge] tags on their own lines, 6-10 syllables a line, only the words to sing; ace-step needs them, elevenlabs, fal-minimax and fal-lyria write their own when lyrics are left out. Every take is kept in the song (the Studio's Create panel plays them) and the first one goes into the Studio playlist at its tempo. Slow: a minute or more per take.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "What the music is, in plain words: genre, mood, instruments, energy, what it is for, references by style (never real artist names). The user's own words are best; add what the video needs."
+          },
+          "genre": {
+            "type": "string",
+            "enum": [
+              "pop",
+              "edm",
+              "house",
+              "hiphop",
+              "trap",
+              "phonk",
+              "lofi",
+              "rnb",
+              "rock",
+              "indie",
+              "cinematic",
+              "trailer",
+              "corporate",
+              "ambient",
+              "synthwave",
+              "afrobeats",
+              "reggaeton",
+              "desi",
+              "jazz",
+              "piano",
+              "dnb",
+              "techno",
+              "country",
+              "kids"
+            ],
+            "description": "A genre preset (its instrument and production tags). Left out, it is read from the prompt or the voice-over's mood."
+          },
+          "mood": {
+            "type": "string",
+            "description": "uplifting, inspiring, corporate, tech, calm, warm, sad, tense, dark, mysterious, playful, energetic, epic or romantic. Left out, read from the prompt or the voice-over."
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "song",
+              "score"
+            ],
+            "description": "song: a finished track with its own melody (and vocals when asked). score: an instrumental bed under a voice-over. Default score when the composition has speech, otherwise song."
+          },
+          "vocals": {
+            "type": "string",
+            "enum": [
+              "none",
+              "female",
+              "male",
+              "duet",
+              "auto"
+            ],
+            "description": "Sung or instrumental. auto (default) sings when lyrics are given or the prompt asks for vocals. A score is always instrumental."
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "The words to sing, with [Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro] tags on their own lines; a tag may carry one short modifier ([Chorus - anthemic]). Untagged stanzas are tagged for you (a repeated stanza becomes the chorus)."
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO code of the lyrics (en, hi, es, pt, fr, de, ja, ko, zh …). Default: the voice-over's language, else en."
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 8,
+            "maximum": 600,
+            "description": "Length. Default: the voice-over plus a 2.5 s tail for a video; 150 s for a sung song; 90 s for an instrumental."
+          },
+          "bpm": {
+            "type": "number",
+            "minimum": 50,
+            "maximum": 200,
+            "description": "Tempo. Default: from the voice-over's pace and mood, else the genre's centre."
+          },
+          "key": {
+            "type": "string",
+            "description": "Like \"A minor\" or \"F# major\". Default: picked for the mood."
+          },
+          "engine": {
+            "type": "string",
+            "description": "auto (default), ace-step, elevenlabs, fal-minimax, fal-lyria, fal-ace-step, fal-stable-audio or studio."
+          },
+          "takes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3,
+            "description": "Versions to choose from (default 1). Cloud takes cost each."
+          },
+          "title": {
+            "type": "string",
+            "description": "The song's name (file and take name)."
+          },
+          "compId": {
+            "type": "string",
+            "description": "The composition whose voice-over it follows and where it is placed (default: the active one)."
+          },
+          "fitVoice": {
+            "type": "boolean",
+            "description": "Read the composition's voice-over and fit the music to it (default true when there is one)."
+          },
+          "transcribe": {
+            "type": "boolean",
+            "description": "Transcribe speech that has no transcript yet so the music follows what is said (default true; up to 10 minutes)."
+          },
+          "place": {
+            "type": "boolean",
+            "description": "Lay the first take on the composition as its music layer (ducked under the voice). Default true for a score."
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Timeline seconds the music starts at (default 0)."
+          },
+          "db": {
+            "type": "number",
+            "minimum": -40,
+            "maximum": 6,
+            "description": "Level of the placed music layer, dB (default -4 under a voice, -6 otherwise)."
+          },
+          "useInStudio": {
+            "type": "boolean",
+            "description": "Put the first take in the Studio playlist and set the song tempo to it (default true)."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Repeat a result with the same seed (local and fal-ace-step engines)."
+          },
+          "listEngines": {
+            "type": "boolean",
+            "description": "Only list the engines and whether each is ready; makes nothing."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "music_open_studio",
       "description": "Shows or hides the Music Studio for the user. It also focuses what to look at and plays the song. window: playlist | rack | pianoroll | mixer; patternId (the active pattern) and channelId (the selected channel); mode pattern (PAT: loops the active pattern) or song (SONG: plays the playlist). transport play starts playback in the user's studio (song mode from fromBar, bars from 0, default 0; pattern mode loops patternId), stop stops it, rewind stops and resets the play-from mark; play needs an arranged song or a pattern and an open studio. metronome, snap (none | bar | 1/2 | 1/4 | 1/8 | 1/16 | 1/32 | 1/8T | 1/16T), browser and playlist (show / hide those panels), panel {kind:instrument,channelId} or {kind:effect,insert,effectId} opens a floating parameter window, closePanels closes them all; open:false closes the studio. It never changes notes, channels or mixer settings; use it after building something so the user sees and hears it.",
       "input_schema": {
