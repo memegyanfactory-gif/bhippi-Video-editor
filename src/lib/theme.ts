@@ -233,7 +233,7 @@ let fade: ReturnType<typeof setTimeout> | undefined;
  * `motion` lets a gradient backdrop drift (styles/themes.css, `data-backdrop="moving"`).
  * A change (not the first paint) cross-fades for a moment so the switch feels deliberate.
  */
-/** Whether gradient backdrops drift and pulse; on unless the user switched it off. */
+/** Whether gradient backdrops drift; on unless the user switched it off. */
 export const resolveMotion = (settings: Pick<Settings, 'appearance'> | null | undefined) => settings?.appearance?.motion !== false;
 
 export function applyTheme(theme: Theme, glass?: GlassPrefs, motion = true): void {
@@ -248,7 +248,7 @@ export function applyTheme(theme: Theme, glass?: GlassPrefs, motion = true): voi
   root.dataset.theme = theme;
   root.dataset.surface = kind === 'solid' ? 'solid' : 'layered';
   paintGlass(root, theme === 'glass' ? (glass ?? GLASS_DEFAULTS) : null);
-  // A gradient backdrop (Aurora, Ember, Glass on a gradient) drifts and breathes slowly; a picture
+  // A gradient backdrop (Aurora, Ember, Glass on a gradient) drifts slowly; a picture
   // stays still, since moving a photo reads as a glitch rather than as light.
   const gradient = kind === 'gradient' || (theme === 'glass' && (glass ?? GLASS_DEFAULTS).source === 'gradient');
   if (gradient && motion) root.dataset.backdrop = 'moving';

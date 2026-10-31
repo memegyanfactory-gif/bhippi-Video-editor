@@ -314,14 +314,16 @@
 :root[data-surface="layered"]:not([data-theme="glass"]) .app { position: relative; isolation: isolate; background: var(--app); }
 :root[data-surface="layered"]:not([data-theme="glass"]) .app::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--app-bg); }
 
-/* A moving backdrop: the glows drift, turn a little and breathe, over about forty seconds. The
-   layer is oversized so its edges never come into view, and a gradient needs no blur (it is
-   already smooth), so each frame is a composite of one cached texture — no repaint. */
+/* A moving backdrop: the glows drift and turn a little, over about forty seconds. The layer is
+   oversized so its edges never come into view, and a gradient needs no blur (it is already
+   smooth), so each frame is a composite of one cached texture — no repaint. It never fades: an
+   opacity "breathe" here pulsed the whole window see-through (it showed through every translucent
+   pane, Settings most of all), so only the position moves. */
 :root[data-backdrop="moving"] .app::before {
   inset: -14%;
   filter: none;
-  will-change: transform, opacity;
-  animation: backdrop-drift 42s ease-in-out infinite, backdrop-breathe 11s ease-in-out infinite;
+  will-change: transform;
+  animation: backdrop-drift 42s ease-in-out infinite;
 }
 @keyframes backdrop-drift {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
@@ -329,10 +331,9 @@
   50% { transform: translate3d(3%, 4%, 0) scale(1.12) rotate(-1.5deg); }
   75% { transform: translate3d(4%, -3%, 0) scale(1.05) rotate(-3deg); }
 }
-@keyframes backdrop-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.78; }
-}
+/* Behind an open dialog (Settings, export…) the backdrop holds still: the frosted dialog would
+   otherwise re-blur a moving window every frame, which flickers on the see-through window. */
+:root[data-backdrop="moving"]:has(.modal-backdrop) .app::before { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   :root[data-backdrop="moving"] .app::before { animation: none; }
 }
