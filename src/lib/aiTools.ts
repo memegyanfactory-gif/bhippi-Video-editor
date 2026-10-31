@@ -100,7 +100,7 @@ import { COLOR_TOOLS, LUT_REFUSAL, runColorTool } from './colorTools';
 import { MUSIC_TOOLS, runMusicTool } from './musicTools';
 import { asksForLut, turnPrompt } from './turnPrompts';
 import { GENERIC_TARGET, pacingReport } from './pacing';
-import { buildShortComp, MAX_SHORTS, normalizeSegments, orientationFromAnswer, orientationStated, SHORT_FORMAT_OPTIONS, SHORT_FRAMES, type ShortOrientation, type ShortSpec } from './shorts';
+import { buildShortComp, faceSpans, MAX_SHORTS, normalizeSegments, orientationFromAnswer, orientationStated, requestedCount, shortfall, shortWord, SHORT_FORMAT_OPTIONS, SHORT_FRAMES, type ShortOrientation, type ShortSpec } from './shorts';
 import { detectFaces } from './roast/alpha';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
@@ -189,6 +189,8 @@ type Args = Record<string, unknown>;
  * asks twice. Keyed by turn; a few recent turns are kept.
  */
 const shortsFormats = new Map<string, ShortOrientation>();
+/** Turns already told their batch is too small (create_shorts says it once, then builds what it is given). */
+const shortfallTold = new Set<string>();
 
 /**
  * Asks portrait or landscape. Always a real question — even in Full access, because it is the
@@ -209,7 +211,7 @@ async function askShortsFormat(host: ToolHost, args: Args, turnId: string | unde
   let chosen = fromPrompt;
   if (!chosen) {
     const answer = await host.ask({
-      question: 'Which screen should the shorts be made for?',
+      question: `Which screen should the ${shortWord(turnPrompt(turnId ?? host.turnId)).toLowerCase()}s be made for?`,
       options: SHORT_FORMAT_OPTIONS,
       context: 'Every short is cut, reframed and animated for this frame shape.',
     }, signal, turnId ?? host.turnId);
@@ -3223,17 +3225,33 @@ ${notes.trim()}${paletteLine}
       });
       if (problems.length) return fail(`Fix these and call again (nothing was made): ${problems.join('; ')}.`);
       specs.sort((a, b) => b.score - a.score);
+      const prompt = turnPrompt(turnId ?? host.turnId);
+      const word = shortWord(prompt);
+      // Fewer than the user's own number: said once, before anything is built.
+      const short = shortfall(specs.length, requestedCount(prompt), word);
+      const turnKey = turnId ?? host.turnId ?? '';
+      if (short && turnKey && !shortfallTold.has(turnKey)) {
+        shortfallTold.add(turnKey);
+        while (shortfallTold.size > 16) shortfallTold.delete(shortfallTold.keys().next().value!);
+        return fail(`${short} Nothing was made. Read the transcript again for more moments that stand alone (a new idea, a story, a claim, a number, a joke, a payoff) and call create_shorts once with all of them. Never pad with a weak moment: if the video truly has no more good ones, call again with these and say why in your reply.`);
+      }
 
       // Faces keep the speaker in shot when the frame is cropped (YuNet on the CPU; optional).
       let faces: { id: number; frames: { t: number; x: number; y: number; width: number; height: number }[] }[] = [];
       let faceNote = '';
       if (host.testing) faceNote = ' [test] Faces were not tracked during the plugin test; each short is framed on its focus point.';
       else if (asset.kind === 'video' && bool(args, 'trackFaces') !== false) {
-        const from = Math.min(...specs.flatMap((spec) => spec.segments.map((seg) => seg.start)));
-        const to = Math.max(...specs.flatMap((spec) => spec.segments.map((seg) => seg.end)));
+        // Only the picked moments are read (not the whole video between the first and last), three spans at a time.
+        const spans = faceSpans(specs);
+        const covered = spans.reduce((sum, span) => sum + span.end - span.start, 0);
+        const fps = covered > 900 ? 1 : covered > 300 ? 2 : 4;
         try {
-          const span = to - from;
-          faces = await detectFaces({ path: asset.path, start: from, end: to, fps: span > 900 ? 1 : span > 300 ? 2 : 4 });
+          const found: typeof faces[] = [];
+          for (let i = 0; i < spans.length; i += 3) {
+            if (signal?.aborted) break;
+            found.push(...await Promise.all(spans.slice(i, i + 3).map((span) => detectFaces({ path: asset.path, start: span.start, end: span.end, fps }))));
+          }
+          faces = found.flat();
           faceNote = faces.length ? '' : ' No face was found, so each short is framed on its focus point (or the centre).';
         } catch (error) {
           faceNote = ` Face tracking was not available (${errorText(error)}), so each short is framed on its focus point (or the centre).`;
@@ -3243,7 +3261,7 @@ ${notes.trim()}${paletteLine}
 
       // A "Shorts" folder of its own for this batch.
       const taken = new Set(project.folders.map((folder) => folder.name.toLowerCase()));
-      let folderName = str(args, 'folderName')?.trim() || 'Shorts';
+      let folderName = str(args, 'folderName')?.trim() || `${word}s`;
       if (taken.has(folderName.toLowerCase()) && project.comps.some((c) => c.folderId === project.folders.find((f) => f.name.toLowerCase() === folderName.toLowerCase())?.id)) {
         let n = 2;
         while (taken.has(`${folderName} ${n}`.toLowerCase())) n++;
@@ -3255,7 +3273,7 @@ ${notes.trim()}${paletteLine}
       const captions = bool(args, 'captions') !== false;
       const built = specs.map((spec, index) => buildShortComp({
         asset, spec, rank: index + 1, orientation, fps: sourceComp?.fps ?? 30, words, faces,
-        captionStyle: str(args, 'captionStyle') ?? project.captionStyle, captions, folderId,
+        captionStyle: str(args, 'captionStyle') ?? project.captionStyle, captions, folderId, word,
       }));
       let next = host.history.current();
       next = {
@@ -3277,11 +3295,13 @@ ${notes.trim()}${paletteLine}
       const rows = built.map(({ comp, notes }, index) => {
         const spec = specs[index];
         const length = spec.segments.reduce((sum, seg) => sum + seg.end - seg.start, 0);
-        return `${comp.name} — “${spec.title}”, ${length.toFixed(1)} s from ${spec.segments.map((seg) => `${seg.start.toFixed(1)}–${seg.end.toFixed(1)}`).join(' + ')}${notes.length ? ` (${notes.join(', ')})` : ''}`;
+        return `${comp.name} — “${spec.title}”, ${length.toFixed(1)} s from ${spec.segments.map((seg) => `${seg.start.toFixed(1)}–${seg.end.toFixed(1)}`).join(' + ')}${spec.reason ? ` — ${spec.reason}` : ''}${notes.length ? ` (${notes.join(', ')})` : ''}`;
       });
+      const kind = word.toLowerCase();
       return done(
-        `Made ${built.length} ${orientation} short${built.length === 1 ? '' : 's'} (${frame.width}×${frame.height}) in the “${folderName}” folder, best first, all open as tabs:\n${rows.join('\n')}.${faceNote}\n` +
-        'Each is cut, reframed on the speaker, punched in on alternate parts with a slow push, with its hook and captions. Now edit every short like any video, one comp at a time (open_comp, then compId on each call): motion graphics on the key lines, sound design and a music bed (level_audio), seamless transitions at the cuts, then run_frame_qa {"compId"} on it and fix what it finds. Finish with verify_edit_workflow.',
+        `Made ${built.length} ${orientation} ${kind}${built.length === 1 ? '' : 's'} (${frame.width}×${frame.height}) in the “${folderName}” folder of the Project panel, best first, all open as tabs:\n${rows.join('\n')}.${faceNote}\n` +
+        `Each is cut, reframed on the speaker, punched in on alternate parts with a slow push, with its hook and captions — a base, not the finished ${kind}. Now edit every ${kind} like any video (compId on every call): motion graphics on the key lines (create_motion_scene: the claims, numbers, names and payoffs, never a static slideshow), seamless transitions or punch-ins at the cuts, sound design on the motion (add_sound_effect / place_sfx), a music bed ducked under the voice (level_audio), then run_frame_qa {"compId"} and fix what it finds. ` +
+        `For speed, when there are more than 3 and spawn_subagent is available, give one animator subagent per ${kind} (up to 6 at once) its compId and that checklist so they are edited in parallel, and edit the rest yourself meanwhile. Finish with verify_edit_workflow.`,
         { folderId, orientation, shorts: built.map(({ comp }, index) => ({ compId: comp.id, name: comp.name, score: specs[index].score, title: specs[index].title, duration: Math.round(compDuration(comp) * 100) / 100 })) },
       );
     }

@@ -39,7 +39,47 @@ export function orientationStated(message: string): ShortOrientation | null {
   const text = message.toLowerCase();
   const portrait = /\b(portrait|vertical)\b|\b9\s*[:x/]\s*16\b/.test(text);
   const landscape = /\b(landscape|horizontal)\b|\b16\s*[:x/]\s*9\b/.test(text);
-  return portrait === landscape ? null : portrait ? 'portrait' : 'landscape';
+  if (portrait !== landscape) return portrait ? 'portrait' : 'landscape';
+  // Reels and TikToks only exist as 9:16, so the word names the screen ("shorts" does not: they are cut wide too).
+  return !portrait && /\b(reels?|tiktoks?)\b/.test(text) ? 'portrait' : null;
+}
+
+/** What the user calls them: asked for reels, they get "Reel" comps in a "Reels" folder; otherwise shorts. */
+export type ShortWord = 'Short' | 'Reel';
+export const shortWord = (message: string): ShortWord => (/\breels?\b/i.test(message) && !/\bshorts\b/i.test(message) ? 'Reel' : 'Short');
+
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+
+/** How many the user asked for ("make 5 reels", "six short clips", "6-8 reels" → the top of the range). */
+export function requestedCount(message: string): number | null {
+  const found = new RegExp(`\\b(\\d{1,2}|${NUMBER_WORDS.join('|')})\\s+(?!(?:s|secs?|seconds?|mins?|minutes?)\\b)(?:[a-z-]+\\s+){0,2}?(shorts?|reels?|clips?|tiktoks?)\\b`, 'i').exec(message);
+  if (!found) return null;
+  const word = found[1].toLowerCase();
+  const count = /^\d+$/.test(word) ? Number(word) : NUMBER_WORDS.indexOf(word);
+  return count >= 1 ? Math.min(count, MAX_SHORTS) : null;
+}
+
+/**
+ * Why a batch is too small, or null: fewer than the number the user named. With no number there is
+ * no minimum — 6–8 from a long video is the usual, but only moments that are truly good.
+ */
+export function shortfall(count: number, requested: number | null, word: ShortWord = 'Short'): string | null {
+  return requested && count < requested ? `The user asked for ${requested} ${word.toLowerCase()}s and this call has ${count}.` : null;
+}
+
+/**
+ * The source ranges to look for faces in: every segment of every short, padded a little and merged
+ * when close, so face tracking reads only the picked moments instead of the whole video between them.
+ */
+export function faceSpans(specs: { segments: { start: number; end: number }[] }[], gap = 20): { start: number; end: number }[] {
+  const ranges = specs.flatMap((spec) => spec.segments).map((s) => ({ start: Math.max(0, s.start - 0.5), end: s.end + 0.5 })).sort((a, b) => a.start - b.start);
+  const spans: { start: number; end: number }[] = [];
+  for (const range of ranges) {
+    const last = spans[spans.length - 1];
+    if (last && range.start <= last.end + gap) last.end = Math.max(last.end, range.end);
+    else spans.push({ ...range });
+  }
+  return spans.map((s) => ({ start: round(s.start), end: round(s.end) }));
 }
 
 /** Where the model tells us a short comes from and why it is worth making. */
@@ -80,8 +120,8 @@ export const MAX_SHORTS = 12;
 const round = (value: number, places = 3) => Math.round(value * 10 ** places) / 10 ** places;
 const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
 
-/** "Short 1 _ 8.4★" — rank first so the Project panel lists the best one on top. */
-export const shortName = (rank: number, score: number) => `Short ${rank} _ ${clamp(score, 0, 10).toFixed(1)}★`;
+/** "Short 1 _ 8.4★" (or "Reel 1 _ 8.4★") — rank first so the Project panel lists the best one on top. */
+export const shortName = (rank: number, score: number, word: ShortWord = 'Short') => `${word} ${rank} _ ${clamp(score, 0, 10).toFixed(1)}★`;
 
 /**
  * Cleans a short's ranges: inside the source, in play order, overlaps merged, each range eased
@@ -170,6 +210,8 @@ type BuildInput = {
   captionStyle: string | null;
   captions: boolean;
   folderId: string | null;
+  /** What the user calls them, for the comp's name ("Reel 1 _ 8.4★"). */
+  word?: ShortWord;
 };
 
 /**
@@ -180,7 +222,7 @@ export function buildShortComp(input: BuildInput): { comp: Comp; notes: string[]
   const { asset, spec, rank, orientation, fps } = input;
   const frame = SHORT_FRAMES[orientation];
   const notes: string[] = [];
-  let comp = newComp({ name: shortName(rank, spec.score), width: frame.width, height: frame.height, fps });
+  let comp = newComp({ name: shortName(rank, spec.score, input.word), width: frame.width, height: frame.height, fps });
   comp = { ...comp, folderId: input.folderId };
   const video = tracksOf(comp, 'video');
   const audio = tracksOf(comp, 'audio');

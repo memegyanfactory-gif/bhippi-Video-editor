@@ -2194,7 +2194,7 @@
     },
     {
       "name": "choose_shorts_format",
-      "description": "SHORTS step 1: asks the user which screen the shorts are for — portrait 9:16 (Reels, Shorts, TikTok) or landscape 16:9 — and waits for the answer. Always call it before picking clips when the user asks for shorts and has not said portrait or landscape; it asks even in Full access (the screen is the user's call). Pass orientation only when the user already said it. create_shorts then uses the answer.",
+      "description": "SHORTS step 1: asks the user which screen the shorts are for — portrait 9:16 (Reels, Shorts, TikTok) or landscape 16:9 — and waits for the answer. Always call it before picking clips when the user asks for shorts or reels and has not said portrait or landscape; it asks even in Full access (the screen is the user's call). It does not ask when the request already says it (reels and TikToks are always portrait). Pass orientation only when the user already said it. create_shorts then uses the answer.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2247,7 +2247,7 @@
     },
     {
       "name": "create_shorts",
-      "description": "SHORTS step 2: turns the best moments of a long video into shorts, one comp each, in a \"Shorts\" folder, named with their rating best first (\"Short 1 _ 8.4★\") and all opened as tabs. You do the judging first: analyze_clip_speech on the source and read the whole transcript, inspect_clip_frames to see who is where, then pick moments that stand alone — a hook in the first 2 s, one complete idea, a payoff — 15–60 s each (up to 90 s for a story), and rate each 0–10 (hook strength, standalone clarity, emotion or value, payoff, shareability). Segments are SOURCE seconds from the transcript; give several segments to cut out waffle inside a short (they play in the order given). The tool eases every cut to word edges, builds the comp at the chosen frame (portrait 1080×1920 or landscape 1920×1080), reframes the footage on the speaker's face (tracked automatically; tall footage in a wide frame is fitted over a blurred copy), punches in on alternate parts with a slow push, puts the hook as kinetic type over the opening and captions from the transcript. It asks portrait or landscape itself if choose_shorts_format was not called. Then edit every short like any video (motion graphics, sound, music, frame QA) with compId.",
+      "description": "SHORTS step 2: turns the best moments of a long video into shorts or reels, one comp each, in a \"Shorts\" folder (\"Reels\" with \"Reel 1 _ 8.4★\" names when the user said reels), named with their rating best first and all opened as tabs. Give all of them in one call. Quality first: only moments that are truly strong highlights, never padding. With no number from the user a long video usually holds 6–8; fewer than a number the user named is sent back once. Give each a reason (why it works) — it is shown to the user. You do the judging first: analyze_clip_speech on the source and read the whole transcript, inspect_clip_frames to see who is where, then pick moments that stand alone — a hook in the first 2 s, one complete idea, a payoff — 15–60 s each (up to 90 s for a story), and rate each 0–10 (hook strength, standalone clarity, emotion or value, payoff, shareability). Segments are SOURCE seconds from the transcript; give several segments to cut out waffle inside a short (they play in the order given). The tool eases every cut to word edges, builds the comp at the chosen frame (portrait 1080×1920 or landscape 1920×1080), reframes the footage on the speaker's face (tracked automatically; tall footage in a wide frame is fitted over a blurred copy), punches in on alternate parts with a slow push, puts the hook as kinetic type over the opening and captions from the transcript. It asks portrait or landscape itself if choose_shorts_format was not called. Then edit every short like any video (motion graphics, sound, music, frame QA) with compId.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2342,7 +2342,7 @@
           },
           "folderName": {
             "type": "string",
-            "description": "Folder for the shorts (default \"Shorts\")."
+            "description": "Folder for the shorts (default \"Reels\" when the user said reels, else \"Shorts\")."
           }
         },
         "required": [

@@ -70,7 +70,7 @@ export const GENRE_TOOLS: Record<Genre, readonly string[]> = {
     'inspect_color', 'layout_clip', 'fill_background', 'split_screen', 'frame_hold', 'set_mask', 'rotoscope_clip', 'track_people',
     'reveal_subject', 'erase_subject_clip', 'add_text_behind_subject', 'add_media_behind_subject', 'list_learned_skills', 'apply_learned_skill',
   ],
-  shorts: ['choose_shorts_format', 'create_shorts', 'podcast_cut', 'layout_clip', 'track_people', 'fill_background', 'apply_recipe', 'list_recipes'],
+  shorts: ['choose_shorts_format', 'create_shorts', 'spawn_subagent', 'podcast_cut', 'layout_clip', 'track_people', 'fill_background', 'apply_recipe', 'list_recipes'],
 };
 
 /**

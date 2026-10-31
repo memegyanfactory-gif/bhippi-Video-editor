@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildShortComp, fillSize, normalizeSegments, offsetFor, orientationFromAnswer, shortName, subjectPath, SHORT_FORMAT_OPTIONS } from '../src/lib/shorts';
+import { buildShortComp, faceSpans, fillSize, normalizeSegments, offsetFor, orientationFromAnswer, requestedCount, shortfall, shortName, shortWord, subjectPath, SHORT_FORMAT_OPTIONS } from '../src/lib/shorts';
 import { tracksOf } from '../src/lib/timeline';
 import type { Asset } from '../src/lib/types';
 
@@ -93,11 +93,45 @@ describe('a short comp', () => {
 });
 
 describe('whether the request already chose the screen', () => {
-  it('asks unless portrait or landscape is named outright', async () => {
+  it('asks unless the screen is named outright, or the word is reels (always 9:16)', async () => {
     const { orientationStated } = await import('../src/lib/shorts');
     expect(orientationStated('make shorts from this video')).toBeNull();
-    expect(orientationStated('make 5 reels')).toBeNull();
+    expect(orientationStated('make 5 reels')).toBe('portrait');
+    expect(orientationStated('make reels from this video')).toBe('portrait');
+    expect(orientationStated('reels but in 16:9 for youtube')).toBe('landscape');
     expect(orientationStated('make vertical shorts')).toBe('portrait');
     expect(orientationStated('shorts in 16:9 please')).toBe('landscape');
+  });
+});
+
+describe('reels from one video', () => {
+  it('names them by the word the user used', () => {
+    expect(shortWord('make reels from this video')).toBe('Reel');
+    expect(shortWord('make good reels from it')).toBe('Reel');
+    expect(shortWord('make shorts from this podcast')).toBe('Short');
+    expect(shortName(2, 8.4, 'Reel')).toBe('Reel 2 _ 8.4★');
+  });
+
+  it('reads how many were asked for, not a length', () => {
+    expect(requestedCount('make 5 reels')).toBe(5);
+    expect(requestedCount('make six good reels from this')).toBe(6);
+    expect(requestedCount('one video 6-8 reels')).toBe(8);
+    expect(requestedCount('make 30 second reels')).toBeNull();
+    expect(requestedCount('make reels from this video')).toBeNull();
+    expect(requestedCount('make 40 reels')).toBe(12);
+  });
+
+  it('sends back a batch smaller than the number asked, but sets no minimum otherwise', () => {
+    expect(shortfall(3, 5, 'Reel')).toMatch(/asked for 5 reels/);
+    expect(shortfall(5, 5)).toBeNull();
+    expect(shortfall(3, null)).toBeNull();
+  });
+
+  it('tracks faces only around the picked moments', () => {
+    const spans = faceSpans([
+      { segments: [{ start: 100, end: 130 }, { start: 140, end: 150 }] },
+      { segments: [{ start: 1500, end: 1540 }] },
+    ]);
+    expect(spans).toEqual([{ start: 99.5, end: 150.5 }, { start: 1499.5, end: 1540.5 }]);
   });
 });
