@@ -10,6 +10,7 @@
 // studied beats and timing arrive with the brief instead of waiting for a discovery call.
 import { studioOpen } from '../music/studioBus';
 import { playbook } from './motionDirection';
+import { asksForShorts } from './workflowRoute';
 
 export type Genre = 'saas' | 'motion' | 'character2d' | '3d' | 'documentary' | 'meme' | 'edit' | 'shorts';
 
@@ -167,7 +168,8 @@ export type Toolset = { genres: Genre[]; full: string[]; core: string[]; playboo
  * "continue"), and the tools to send whole for them.
  */
 export function routeTools(message: string, earlier: string[] = [], editStyle?: string | null, phase?: string | null, guided = false): Toolset {
-  const detect = (text: string) => (Object.keys(SIGNALS) as Genre[]).filter((genre) => SIGNALS[genre].test(text));
+  // Shorts by any name ("reels banao", "clips from this podcast"), not only the signal words.
+  const detect = (text: string) => (Object.keys(SIGNALS) as Genre[]).filter((genre) => SIGNALS[genre].test(text) || (genre === 'shorts' && asksForShorts(text)));
   let genres = detect(message);
   if (!genres.length) genres = detect(earlier.slice(-4).join('\n'));
   if (editStyle === 'funny' && !genres.includes('meme')) genres.push('meme');

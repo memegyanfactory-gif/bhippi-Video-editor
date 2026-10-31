@@ -73,3 +73,13 @@ describe('the premium films by name', () => {
     expect(routeTools('a video of the real app at work').playbook?.id).toBe('launch-film');
   });
 });
+
+describe('shorts routing by any name', () => {
+  it('sends the shorts tools for reels, clips or Hinglish asks', () => {
+    for (const ask of ['make reels from this video', 'make clips from this interview', 'is video se reels banao']) {
+      const set = routeTools(ask);
+      expect(set.genres, ask).toContain('shorts');
+      expect(set.full, ask).toEqual(expect.arrayContaining(['choose_shorts_format', 'create_shorts', 'spawn_subagent']));
+    }
+  });
+});

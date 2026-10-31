@@ -12,10 +12,35 @@ const MAKE = /\b(make|create|produce|build|generate|plan|script|storyboard|assem
 const PIECE = /\b(video|reel|reels|short|shorts|tiktok|film|movie|ad|advert|commercial|explainer|intro|outro|trailer|teaser|promo|vlog|documentary|montage|highlight reel|recap|music video|launch video|story)\b/i;
 const WHOLE = /\b(from scratch|full (edit|production|video)|whole (video|edit)|start to finish|end to end|rough cut|first cut|final cut)\b/i;
 
+/**
+ * The pieces, plural (one "short" is also an adjective, one "reel" usually the edit already open):
+ * shorts, reels, TikToks, clips for social, the best or viral moments.
+ */
+const PIECES = String.raw`(shorts|reels|tik ?toks|yt shorts|(short|social|viral|vertical|insta(gram)?|youtube|tik ?tok) clips|clips for (insta(gram)?|youtube|tik ?tok|reels|shorts|social)|(viral|best|top|strongest|funniest) (moments|parts|bits|clips))`;
+/** Words that are pieces only when cut from something ("clips from this podcast"), not "trim these clips" or colour "highlights". */
+const FROM_PIECES = String.raw`(clips|highlights)\b[^.\n]{0,40}\b(from|out of|of (this|the|my|that)|se)`;
+/** One cut from a long video: "a reel from this podcast". */
+const ONE_FROM = String.raw`\b(a|one|1) (short|reel|tik ?tok)\b[^.\n]{0,40}\b(from|out of)\b`;
+/** Asking for them: English verbs before the piece, Hindi/Hinglish ones after it ("reels banao"). */
+const ASK_BEFORE = String.raw`\b(make|create|cut|chop|clip|split|turn|get|give|find|pick|pull|extract|generate|repurpose|want|need)\b`;
+const ASK_AFTER = String.raw`\b(bana\w*|nikal\w*|kaat\w*|chahiye|de do)\b`;
+const SHORTS_ASK = new RegExp(
+  String.raw`${ASK_BEFORE}[^.\n]{0,50}(\b${PIECES}\b|\b${FROM_PIECES}\b|${ONE_FROM})|\b(${PIECES}|${FROM_PIECES})\b[^.\n]{0,30}(${ASK_AFTER}|\b(from|out of)\b)`,
+  'i',
+);
+
+/**
+ * Whether a message asks for shorts or reels cut from a longer video, in the words people use:
+ * "make reels from this video", "cut this podcast into shorts", "clips from this interview", "best
+ * moments for TikTok", "is video se reels banao". The workflow and tool routers both read it, so
+ * the ask runs the shorts flow whatever it is called.
+ */
+export const asksForShorts = (message: string): boolean => SHORTS_ASK.test(message.trim());
+
 /** Whether a message asks for a video to be made, rather than a change to one. */
 export function asksForProduction(message: string): boolean {
   const text = message.trim();
-  if (WHOLE.test(text)) return true;
+  if (WHOLE.test(text) || asksForShorts(text)) return true;
   // "make a 40 s reel from this footage", "create an explainer about…", "turn this into a short".
   const make = MAKE.exec(text);
   return !!make && PIECE.test(text.slice(make.index));

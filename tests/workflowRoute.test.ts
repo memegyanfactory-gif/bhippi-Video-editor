@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { routeSignals, type ChatMessage } from '../src/chat/ChatPanel';
-import { asksForProduction, continuesTheJob, filmEffortHint, routeWorkflow } from '../src/lib/workflowRoute';
+import { asksForProduction, asksForShorts, continuesTheJob, filmEffortHint, routeWorkflow } from '../src/lib/workflowRoute';
 
 describe('Auto workflow routing', () => {
   it.each([
@@ -106,5 +106,32 @@ describe('thinking effort for a video', () => {
     expect(filmEffortHint('trim the first 3 seconds', 'medium', ['medium', 'max'])).toBeNull();
     expect(filmEffortHint('make a 40 s launch video', 'high', ['medium', 'high', 'max'])).toBeNull();
     expect(filmEffortHint('make a 40 s launch video', 'medium', [])).toBeNull();
+  });
+});
+
+describe('shorts and reels by any name', () => {
+  it('recognises the ask however it is worded', () => {
+    for (const ask of [
+      'make reels from this video',
+      'make good reels from it',
+      'cut this podcast into shorts',
+      'give me 6 tiktoks',
+      'make clips from this interview',
+      'find the best moments for instagram',
+      'pull the viral moments out of this stream',
+      'is video se reels banao',
+      'isse shorts nikalo',
+      'make a reel from this podcast',
+      'reels from this video please',
+    ]) {
+      expect(asksForShorts(ask), ask).toBe(true);
+      expect(routeWorkflow('auto', ask, false), ask).toBe('full');
+    }
+  });
+
+  it('leaves ordinary edits alone', () => {
+    for (const change of ['trim these clips', 'make the intro short', 'make the highlights pop', 'edit this reel', 'move the clips to V2']) {
+      expect(asksForShorts(change), change).toBe(false);
+    }
   });
 });
