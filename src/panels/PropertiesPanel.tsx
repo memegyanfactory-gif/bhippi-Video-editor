@@ -7,6 +7,7 @@ import { ScrubNumber } from '../components/workspace';
 import { MotionInspector } from './MotionInspector';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CAPTION_STYLES, styleLabel } from '../lib/captionStyles';
+import { applyStyleToAllCaptions } from '../lib/subtitlesEngine';
 import { clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, gainToDb, parseTimecode, presetLabel, timecode } from '../lib/editor';
 import type { History } from '../lib/history';
 import { api } from '../lib/ipc';
@@ -355,7 +356,11 @@ function ClipProperties({ project, comp, clip, assets, history, onOpenGraphics, 
           </Row>
           {source.preset === 'caption' && (
             <Row label="Caption style">
-              <select className="prop-select" value={source.style ?? ''} disabled={disabled} onChange={(event) => setSource({ style: event.target.value || null })}>
+              {/* The comp's caption look: every caption in this comp takes it, not only this one. */}
+              <select className="prop-select" value={source.style ?? ''} disabled={disabled} onChange={(event) => {
+                const style = event.target.value || null;
+                history.commit((current) => ({ ...current, captionStyle: style, comps: current.comps.map((item) => (item.id === comp.id ? applyStyleToAllCaptions(item, style) : item)) }), 'Caption Style');
+              }}>
                 <option value="">Bhippi basic</option>
                 {CAPTION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}
               </select>

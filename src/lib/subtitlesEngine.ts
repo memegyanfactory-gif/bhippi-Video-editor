@@ -352,7 +352,7 @@ export function generateProjectSubtitles(
 /**
  * Updates all subtitle / caption clips in a composition to use the selected WatchFIWN style.
  */
-export function applyStyleToAllCaptions(comp: Comp, styleId: string): Comp {
+export function applyStyleToAllCaptions(comp: Comp, styleId: string | null): Comp {
   return {
     ...comp,
     clips: comp.clips.map((clip) => {

@@ -102,6 +102,7 @@ import { asksForLut, turnPrompt } from './turnPrompts';
 import { GENERIC_TARGET, pacingReport } from './pacing';
 import { buildShortComp, faceSpans, MAX_SHORTS, normalizeSegments, orientationFromAnswer, orientationStated, requestedCount, shortfall, shortWord, SHORT_FORMAT_OPTIONS, SHORT_FRAMES, type ShortOrientation, type ShortSpec } from './shorts';
 import { detectFaces } from './roast/alpha';
+import { applyStyleToAllCaptions } from './subtitlesEngine';
 
 /** Tells the model a file search stopped at its budget, so "0 found" is not "not there". */
 const truncatedNote = (truncated: boolean | undefined) =>
@@ -3831,6 +3832,12 @@ ${notes.trim()}${paletteLine}
         }
       }
       if (Object.keys(patch).length) next = { ...next, clips: next.clips.map((item) => (item.id === found.clip.id ? { ...item, ...patch } : item)) };
+      // A caption's style is the comp's caption look: the others in this comp take it too.
+      const restyled = patch.source?.type === 'text' && patch.source.preset === 'caption' && text && str(text, 'style') ? patch.source.style : undefined;
+      if (restyled) {
+        next = applyStyleToAllCaptions(next, restyled);
+        changes.push('caption style on every caption in the comp');
+      }
       if (!changes.length) return fail('nothing to change');
       editComp(comp, () => next);
       return done(`${clipName(project, assets, found.clip)}: ${changes.filter(Boolean).join(', ')}`, { clipId: found.clip.id });
@@ -3917,23 +3924,26 @@ ${notes.trim()}${paletteLine}
         const near = styleBriefs({ query: style.replace(/[^a-z0-9]+/gi, ' ').trim().split(' ')[0] }).slice(0, 6).map((brief) => brief.id);
         return fail(`there is no caption style "${style}". ${near.length ? `Close ones: ${near.join(', ')}. ` : ''}See list_caption_styles for every id.`);
       }
+      // A caption style is a comp's look: every caption in the comp (compId, else the open one) takes
+      // it, never only one; other comps keep theirs unless allComps.
       const applyToAll = bool(args, 'applyToAll') !== false;
+      const allComps = bool(args, 'allComps') === true;
+      const target = allComps ? null : pickComp(project, args);
+      if (applyToAll && !allComps && !target) return fail('there is no comp');
       let touched = 0;
       commit((current) => ({
         ...current,
         captionStyle: style,
         comps: applyToAll
-          ? current.comps.map((comp) => ({
-              ...comp,
-              clips: comp.clips.map((clip) => {
-                if (clip.source.type !== 'text' || clip.source.preset !== 'caption') return clip;
-                touched++;
-                return { ...clip, source: { ...clip.source, style } };
-              }),
-            }))
+          ? current.comps.map((comp) => {
+              if (target && comp.id !== target.id) return comp;
+              touched += comp.clips.filter((clip) => clip.source.type === 'text' && clip.source.preset === 'caption').length;
+              return applyStyleToAllCaptions(comp, style);
+            })
           : current.comps,
       }));
-      return done(`Caption style ${style}${applyToAll ? ` applied to ${touched} captions` : ' set as the default'}`);
+      const where = allComps ? 'every comp' : `“${target?.name}”`;
+      return done(`Caption style ${style}${applyToAll ? ` applied to all ${touched} captions in ${where}` : ' set as the default for new captions'}`);
     }
 
     case 'add_marker': {

@@ -75,6 +75,7 @@ import { rotoscope } from './lib/roto';
 import type { AgentRun, Connection } from './chat/ChatStatusBar';
 import { NO_MUTES, setMutes, type MuteState } from './lib/audio';
 import type { CaptionStyle } from './lib/captionStyles';
+import { applyStyleToAllCaptions } from './lib/subtitlesEngine';
 import { capitalize, clamp, DEFAULT_EFFECTS, DEFAULT_TRANSFORM, parseCaptions, safeFileName, STILL_DEFAULT, timecode, uid } from './lib/editor';
 import { useHistory } from './lib/history';
 import { isUnsaved } from './lib/unsaved';
@@ -2688,18 +2689,11 @@ export default function App() {
     setSelection([clip.id]);
   };
 
+  // A caption style is the comp's look: picking one restyles every caption in this comp, whichever is selected.
   const captionStyleChosen = (style: CaptionStyle) => {
-    const captions = comp?.clips.filter((clip) => clip.source.type === 'text' && clip.source.preset === 'caption' && selection.includes(clip.id)) ?? [];
     history.commit((current) => {
       const next = { ...current, captionStyle: style.id };
-      if (!comp) return next;
-      return updateComp(next, comp.id, (target) => ({
-        ...target,
-        clips: target.clips.map((clip) => {
-          const chosen = captions.length ? captions.some((item) => item.id === clip.id) : clip.source.type === 'text' && clip.source.preset === 'caption';
-          return chosen && clip.source.type === 'text' ? { ...clip, source: { ...clip.source, style: style.id } } : clip;
-        }),
-      }));
+      return comp ? updateComp(next, comp.id, (target) => applyStyleToAllCaptions(target, style.id)) : next;
     }, 'Caption Style');
   };
 

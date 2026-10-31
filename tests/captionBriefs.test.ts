@@ -61,3 +61,42 @@ describe('the caption style tools', () => {
     expect(current().comps[0].clips[0].source).toMatchObject({ style: 'dynNeonTube' });
   });
 });
+
+describe('a caption style is the whole comp', () => {
+  // Two comps (say two reels), each with captions and a title that is not a caption.
+  const twoComps = () => {
+    const project = newProject();
+    const base = project.comps[0];
+    const [, v2] = tracksOf(base, 'video');
+    const captions = (style: string) => [0, 2, 4].map((start) => newClip({ trackId: v2.id, start, duration: 2, source: textSource('caption', { text: `line ${start}`, style }) }));
+    const title = newClip({ trackId: v2.id, start: 6, duration: 2, source: textSource('title', { text: 'Title' }) });
+    project.comps = [
+      { ...base, id: 'reel-1', name: 'Reel 1', clips: [...captions('hormozi'), title] },
+      { ...base, id: 'reel-2', name: 'Reel 2', clips: captions('hormozi') },
+    ];
+    project.activeCompId = 'reel-1';
+    return host(project);
+  };
+  const stylesIn = (project: Project, compId: string) =>
+    project.comps.find((comp) => comp.id === compId)!.clips.filter((clip) => clip.source.type === 'text' && clip.source.preset === 'caption').map((clip) => (clip.source.type === 'text' ? clip.source.style : null));
+
+  it('set_caption_style restyles every caption in that comp, and only that comp', async () => {
+    const { host: h, project } = twoComps();
+    const applied = await runTool(h, 'set_caption_style', { style: 'dynNeonTube', compId: 'reel-1' });
+    expect(applied.ok).toBe(true);
+    expect(stylesIn(project(), 'reel-1')).toEqual(['dynNeonTube', 'dynNeonTube', 'dynNeonTube']);
+    expect(stylesIn(project(), 'reel-2')).toEqual(['hormozi', 'hormozi', 'hormozi']);
+    expect(project().comps[0].clips[3].source).toMatchObject({ preset: 'title', style: null });
+    await runTool(h, 'set_caption_style', { style: 'dynNeonTube', allComps: true });
+    expect(stylesIn(project(), 'reel-2')).toEqual(['dynNeonTube', 'dynNeonTube', 'dynNeonTube']);
+  });
+
+  it('restyling one caption with update_clip restyles the rest of its comp', async () => {
+    const { host: h, project } = twoComps();
+    const one = project().comps[0].clips[1];
+    const result = await runTool(h, 'update_clip', { clipId: one.id, text: { style: 'dynNeonTube' } });
+    expect(result.ok).toBe(true);
+    expect(stylesIn(project(), 'reel-1')).toEqual(['dynNeonTube', 'dynNeonTube', 'dynNeonTube']);
+    expect(stylesIn(project(), 'reel-2')).toEqual(['hormozi', 'hormozi', 'hormozi']);
+  });
+});

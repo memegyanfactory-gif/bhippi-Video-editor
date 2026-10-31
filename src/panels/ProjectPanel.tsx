@@ -6,7 +6,6 @@ import {
   TriangleAlert, Type, Upload, Video,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { useToast } from '../components/ui';
 import { StyledCaptionText } from '../editor/StyledCaption';
 import { CAPTION_STYLES, STYLE_CATEGORIES, type CaptionStyle } from '../lib/captionStyles';
 import { bytes, capitalize, timecode } from '../lib/editor';
@@ -539,7 +538,6 @@ const PRESETS: { preset: Preset; hint: string }[] = [
 ];
 
 function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCaptionStyle, onImportCaptions }: Props) {
-  const toast = useToast();
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -579,16 +577,8 @@ function GraphicsTab({ project, assets, history, clipSelection, onAddText, onCap
           <input ref={fileInput} type="file" accept=".srt,.vtt" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCaptions(file); event.target.value = ''; }} />
         </div>
         <div className="style-current">
-          {selectedCaption ? 'Selected caption' : 'Default for new captions'}: <strong>{CAPTION_STYLES.find((style) => style.id === current)?.label ?? 'Bhippi basic'}</strong>
-          {captionClips.length > 0 && current && (
-            <button type="button" className="btn btn-small btn-ghost" onClick={() => {
-              const style = CAPTION_STYLES.find((item) => item.id === current);
-              if (style) {
-                onCaptionStyle(style);
-                toast({ tone: 'success', title: `${style.label} applied to ${captionClips.length} captions`, timeout: 2500 });
-              }
-            }}>Apply to all {captionClips.length} captions</button>
-          )}
+          {captionClips.length ? `This comp's ${captionClips.length} caption${captionClips.length === 1 ? '' : 's'}` : 'Default for new captions'}: <strong>{CAPTION_STYLES.find((style) => style.id === current)?.label ?? 'Bhippi basic'}</strong>
+          {captionClips.length > 0 && <span className="muted"> · a style you pick restyles them all</span>}
         </div>
         <div className="style-filters">
           <label className="bin-search">

@@ -3297,7 +3297,7 @@
     },
     {
       "name": "set_caption_style",
-      "description": "Makes a WatchFIWN caption style the project default and, unless applyToAll is false, restyles every caption clip.",
+      "description": "A comp's caption look: sets the default WatchFIWN style and restyles every caption in the comp (compId, else the open one), never just one. allComps: every comp. applyToAll false: default only.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3305,6 +3305,12 @@
             "type": "string"
           },
           "applyToAll": {
+            "type": "boolean"
+          },
+          "compId": {
+            "type": "string"
+          },
+          "allComps": {
             "type": "boolean"
           }
         },
